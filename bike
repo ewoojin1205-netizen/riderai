@@ -1,0 +1,2038 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { 
+  Wrench, 
+  Bike, 
+  Gauge, 
+  History, 
+  MessageSquare, 
+  CheckCircle2, 
+  Plus, 
+  ChevronRight, 
+  Sparkles, 
+  RefreshCw, 
+  Sliders, 
+  Send, 
+  X,
+  Trash2,
+  Calendar,
+  Award,
+  Coins,
+  CreditCard,
+  Edit2,
+  Check,
+  AlertTriangle,
+  Paperclip
+} from 'lucide-react';
+
+// =============================================================================
+// GLOBAL CONFIGURATION & LOCAL STORAGE KEYS (GitHub Pages / SPA deployment optimized)
+// =============================================================================
+const STORAGE_KEY_BIKES_LIST = 'rider_ai_bikes_list_v2';
+const STORAGE_KEY_ACTIVE_BIKE_ID = 'rider_ai_active_bike_id_v2';
+const STORAGE_KEY_DIAGNOSTICS = 'rider_ai_diagnostics_v2';
+const STORAGE_KEY_HISTORY = 'rider_ai_history_v2';
+const STORAGE_KEY_CHAT = 'rider_ai_chat_history_v2';
+
+const CURRENT_YEAR = 2026; // Current base year for dynamic age calculation
+
+// =============================================================================
+// INTELLIGENT OFFLINE SPEC PARSER
+// Fallback engine to ensure 100% correct maintenance checklists and drivetrain types
+// =============================================================================
+const parseLocalBikeSpecs = (modelName) => {
+  const normalized = modelName.toLowerCase().replace(/\s+/g, '');
+  
+  let bikeType = "Manual";
+  let drivetrainType = "Chain";
+  let engineSize = "125cc";
+  
+  // Extract engine size automatically
+  const sizeMatch = modelName.match(/\d{3,4}/);
+  if (sizeMatch) {
+    engineSize = sizeMatch[0] + "cc";
+  } else if (normalized.includes("125")) {
+    engineSize = "125cc";
+  } else if (normalized.includes("50")) {
+    engineSize = "49cc";
+  } else if (normalized.includes("110")) {
+    engineSize = "109cc";
+  }
+  
+  // Heuristic drivetrain & type matcher
+  if (
+    normalized.includes("pcx") || 
+    normalized.includes("nmax") || 
+    normalized.includes("forza") || 
+    normalized.includes("xmax") || 
+    normalized.includes("tmax") || 
+    normalized.includes("vespa") || 
+    normalized.includes("primavera") || 
+    normalized.includes("gts") || 
+    normalized.includes("benly") || 
+    normalized.includes("scr") || 
+    normalized.includes("스쿠터") || 
+    normalized.includes("scooter") ||
+    normalized.includes("voyg") ||
+    normalized.includes("보이져") ||
+    normalized.includes("조이맥스") ||
+    normalized.includes("cruisym") ||
+    normalized.includes("fiddle") ||
+    normalized.includes("비버") ||
+    normalized.includes("아로마")
+  ) {
+    bikeType = "Scooter";
+    drivetrainType = "Belt";
+  } else if (
+    normalized.includes("cub") || 
+    normalized.includes("커브") || 
+    normalized.includes("c125") || 
+    normalized.includes("ct125") || 
+    normalized.includes("언더본") || 
+    normalized.includes("underbone") ||
+    normalized.includes("시티") ||
+    normalized.includes("citi") ||
+    normalized.includes("dh88")
+  ) {
+    bikeType = "Underbone";
+    drivetrainType = "Chain";
+  }
+  
+  // High-fidelity maintenance intervals based on drivetrain and engine type
+  let consumables = [];
+  if (bikeType === "Scooter") {
+    consumables = [
+      { id: "oil", name: "엔진오일", category: "Engine", baseInterval: 1500, userInterval: null, description: "스쿠터 고회전 단기통 엔진 마모 및 마찰 방지 보호용 윤활 오일" },
+      { id: "gear_oil", name: "미션 오일 (기어오일)", category: "Drivetrain", baseInterval: 10000, userInterval: null, description: "스쿠터 후륜 최종 감속 기어박스 보호 및 마찰 완화 윤활유" },
+      { id: "cvt_belt", name: "CVT 구동 벨트", category: "Drivetrain", baseInterval: 20000, userInterval: null, description: "동력 전달 효율 보장 및 주행 중 끊어짐 예방을 위한 강화 고무 벨트" },
+      { id: "weight_roller", name: "웨이트 롤러 (무브볼)", category: "Drivetrain", baseInterval: 10000, userInterval: null, description: "스쿠터 원심력 무단 변속 조율을 위한 고정밀 롤러 부속" },
+      { id: "air_filter", name: "에어클리너 필터", category: "Engine", baseInterval: 10000, userInterval: null, description: "엔진 연소실 흡입 공기의 불순물 및 미세먼지 차단 필터" },
+      { id: "spark_plug", name: "점화플러그", category: "Engine", baseInterval: 10000, userInterval: null, description: "실린더 완전 연소를 통한 엔진 출력 유지용 점화 불꽃 플러그" },
+      { id: "brake_pad_f", name: "앞 브레이크 패드", category: "Brake", baseInterval: 10000, userInterval: null, description: "유압식 프론트 디스크 회전축 제동 제어 마찰 디스크" },
+      { id: "brake_pad_r", name: "뒤 브레이크 슈/패드", category: "Brake", baseInterval: 8000, userInterval: null, description: "후륜 제동을 관장하는 드럼 브레이크 라이닝 슈 또는 마찰 패드" },
+      { id: "brake_fluid", name: "브레이크 액", category: "Brake", baseInterval: 20000, userInterval: null, description: "베이퍼 록 방지를 위한 수분감 분석 및 유압 제동액 관리" },
+      { id: "tire_f", name: "앞 타이어", category: "Others", baseInterval: 15000, userInterval: null, description: "안정적인 하중 유지 및 미끄럼 방지 접지 확보" },
+      { id: "tire_r", name: "뒤 타이어", category: "Others", baseInterval: 10000, userInterval: null, description: "구동축 하중 집중으로 조기 마모되는 후륜 타이어교체" }
+    ];
+  } else if (bikeType === "Underbone") {
+    consumables = [
+      { id: "oil", name: "엔진오일", category: "Engine", baseInterval: 1200, userInterval: null, description: "오일 용량이 작은 언더본 엔진 가속 노화 방지를 위한 기한 내 교체 오일" },
+      { id: "chain_set", name: "대소기어 및 드라이브 체인 세트", category: "Drivetrain", baseInterval: 15000, userInterval: null, description: "체인 및 앞뒤 스프로킷(기어) 동시 마모 대비 일괄 세트 교환 권장" },
+      { id: "chain_cleaning", name: "체인 점검 및 청소 (윤활)", category: "Drivetrain", baseInterval: 1500, userInterval: null, description: "늘어짐 자가 정렬 점검 및 체인 튀는 소음/이탈 방지를 위한 장력 조절 및 체인 루브 청소 도포" },
+      { id: "air_filter", name: "에어클리너 필터", category: "Engine", baseInterval: 10000, userInterval: null, description: "엔진 흡기 효율 복원과 먼지 연소 방지용 흡기 클리너" },
+      { id: "spark_plug", name: "점화플러그", category: "Engine", baseInterval: 10000, userInterval: null, description: "실린더 압축 행정 폭발을 돕는 이그니션 스파크 플러그" },
+      { id: "brake_pad_f", name: "앞 브레이크 패드", category: "Brake", baseInterval: 10000, userInterval: null, description: "제동력 보존을 위한 디스크 압착용 마찰 소모재" },
+      { id: "brake_pad_r", name: "뒤 브레이크 라이닝(슈)", category: "Brake", baseInterval: 12000, userInterval: null, description: "드럼형 뒤 브레이크 내부 팽창식 라이닝 소모품" },
+      { id: "tire_f", name: "앞 타이어", category: "Others", baseInterval: 15000, userInterval: null, description: "조향 컨트롤 및 안정적인 고속 주행 확보용 스포츠 타이어" },
+      { id: "tire_r", name: "뒤 타이어", category: "Others", baseInterval: 12000, userInterval: null, description: "가혹 기동과 무거운 짐 하중을 부담하는 후륜 타이어" }
+    ];
+  } else {
+    // Manual Sport / Naked / Tourer (CBR650R, MT-03, R3, etc.)
+    consumables = [
+      { id: "oil", name: "엔진오일 (매뉴얼용)", category: "Engine", baseInterval: 3000, userInterval: null, description: "고회전 기어박스 및 습식 다판클러치가 통합 오일 팬을 쓰는 매뉴얼 전용 엔진오일" },
+      { id: "oil_filter", name: "엔진 오일 필터", category: "Engine", baseInterval: 6000, userInterval: null, description: "엔진 윤활계 금속 이물질 및 미세 슬러지 차단 장치 (오일 교환 2회당 1회 교체)" },
+      { id: "chain_set", name: "대소기어 및 드라이브 체인 세트", category: "Drivetrain", baseInterval: 20000, userInterval: null, description: "강한 리어 토크 전달로 인해 마모된 앞/뒤 스프로킷(기어) 및 체인 일체형 세트" },
+      { id: "chain_cleaning", name: "드라이브 체인 청소 및 점검", category: "Drivetrain", baseInterval: 1000, userInterval: null, description: "체인 링크 굳어짐 방지 및 윤활 성능 유지, 부식과 소음 억제를 위한 체인 클리너 청소 및 장력 점검 조절" },
+      { id: "air_filter", name: "에어클리너 필터", category: "Engine", baseInterval: 15000, userInterval: null, description: "엔진 출력 저하와 혼합기 희박 방지를 위한 고유량 여과 흡기 필터" },
+      { id: "spark_plug", name: "점화플러그", category: "Engine", baseInterval: 12000, userInterval: null, description: "다기통 고회전 실린더 실화(Mis-fire) 방지를 위한 고성능 순정 점화 플러그" },
+      { id: "coolant", name: "냉각수 (부동액)", category: "Engine", baseInterval: 20000, userInterval: null, description: "엔진 내부 블록 부식 및 실린더 벽 과열 차단을 위한 고안정성 냉각 부동액" },
+      { id: "fork_oil", name: "프론트 포크 오일 & 포크 씰", category: "Others", baseInterval: 15000, userInterval: null, description: "앞 서스펜션 감쇠 압력과 제동 시 노우즈 다이브를 조율하는 충격 흡수 오일 및 누유 방지 리턴 씰" },
+      { id: "brake_pad_f", name: "앞 브레이크 패드", category: "Brake", baseInterval: 10000, userInterval: null, description: "제동 부하 분담률이 약 70%에 달하는 고성능 앞 캘리퍼 전용 스포츠 마찰 패드" },
+      { id: "brake_pad_r", name: "뒤 브레이크 패드", category: "Brake", baseInterval: 12000, userInterval: null, description: "코너링 중 라인 수정 및 속도 제어 안정성을 도우는 리어 디스크 마찰 패드" },
+      { id: "brake_fluid", name: "브레이크 액", category: "Brake", baseInterval: 20000, userInterval: null, description: "고온 제동 유압 전달 유체로 수분 함량 3% 돌파 시 에어 차단 예방 교체" },
+      { id: "tire_f", name: "앞 스포츠 타이어", category: "Others", baseInterval: 12000, userInterval: null, description: "안정적 코너 린 아웃 유도와 노면 마찰 접지력을 맡는 전륜 타이어" },
+      { id: "tire_r", name: "뒤 스포츠 타이어", category: "Others", baseInterval: 10000, userInterval: null, description: "다기통 매뉴얼 구동계 고출력 가속을 고스란히 버텨내어 조기 마모되는 후륜 타이어" }
+    ];
+  }
+  
+  return {
+    modelName: modelName.trim().toUpperCase(),
+    bikeType,
+    engineSize,
+    drivetrainType,
+    consumables
+  };
+};
+
+export default function App() {
+  const [activeTab, setActiveTab] = useState('dashboard');
+
+  // 다중 오토바이 관리 목록 상태 (로컬 스토리지 안전망 통합)
+  const [bikes, setBikes] = useState(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY_BIKES_LIST);
+      if (saved) return JSON.parse(saved);
+    } catch (e) {
+      console.error("로컬 스토리지 파싱 오류 복구:", e);
+    }
+    
+    // Default Initial Data
+    return [{
+      id: 'bike-default-1',
+      modelName: "혼다 PCX 125",
+      modelYear: 2022,
+      bikeType: "Scooter",
+      engineSize: "125cc",
+      drivetrainType: "Belt",
+      currentMileage: 5200,
+      lastUpdated: new Date().toLocaleDateString(),
+      consumables: parseLocalBikeSpecs("혼다 PCX 125").consumables.map(item => ({
+        ...item,
+        lastReplacedMileage: 0
+      }))
+    }];
+  });
+
+  const [isDark, setIsDark] = useState(false);
+  useEffect(() => {
+    const media = window.matchMedia('(prefers-color-scheme: dark)');
+    setIsDark(media.matches);
+    const listener = (e) => setIsDark(e.matches);
+    media.addEventListener('change', listener);
+    return () => media.removeEventListener('change', listener);
+  }, []);
+
+  const theme = {
+    bg: isDark ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900',
+    container: isDark ? 'bg-slate-950' : 'bg-white',
+    header: isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-sm',
+    headerTitle: isDark ? 'text-slate-100' : 'text-slate-800',
+    headerSub: isDark ? 'bg-slate-800 text-cyan-400' : 'bg-sky-50 text-sky-600',
+    card: isDark ? 'bg-slate-900/80 border-slate-800 hover:bg-slate-900' : 'bg-white border-slate-200 hover:bg-slate-50/50 shadow-sm',
+    cardAlt: isDark ? 'bg-slate-900 border-slate-800/80 hover:border-slate-700' : 'bg-white border-slate-200 hover:border-slate-300 shadow-sm',
+    input: isDark ? 'bg-slate-950 border-slate-855 text-slate-200 focus:border-cyan-500' : 'bg-slate-100 border-slate-200 text-slate-800 focus:border-sky-500',
+    accentBg: isDark ? 'bg-cyan-600 hover:bg-cyan-500 text-white' : 'bg-sky-500 hover:bg-sky-600 text-white',
+    accentText: isDark ? 'text-cyan-400' : 'text-sky-600',
+    accentTextHover: isDark ? 'hover:text-cyan-300' : 'hover:text-sky-700',
+    accentBorder: isDark ? 'border-cyan-500/30' : 'border-sky-500/30',
+    accentLightBg: isDark ? 'bg-cyan-950/40 text-cyan-400 border-cyan-900/40' : 'bg-sky-50 text-sky-600 border-sky-100',
+    badge: isDark ? 'bg-slate-800 text-slate-300 border-slate-700/50' : 'bg-slate-100 text-slate-600 border-slate-200',
+    subText: isDark ? 'text-slate-400' : 'text-slate-500',
+    titleText: isDark ? 'text-slate-100' : 'text-slate-800',
+    tooltip: isDark ? 'bg-cyan-950 border-cyan-800/80 text-cyan-200' : 'bg-sky-50 border-sky-200 text-sky-800',
+    tooltipArrow: isDark ? 'bg-cyan-950 border-cyan-800/80' : 'bg-sky-50 border-sky-200',
+    iconBox: isDark ? 'bg-slate-950 border-slate-800 text-cyan-500' : 'bg-slate-100 border-slate-200 text-sky-600',
+    modal: isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-2xl',
+    footer: isDark ? 'bg-slate-900 border-slate-850' : 'bg-white border-slate-200 shadow-[0_-4px_12px_rgba(0,0,0,0.05)]'
+  };
+
+  const [activeBikeId, setActiveBikeId] = useState(() => {
+    const saved = localStorage.getItem(STORAGE_KEY_ACTIVE_BIKE_ID);
+    return saved || 'bike-default-1';
+  });
+
+  const [diagnostics, setDiagnostics] = useState(() => {
+    const saved = localStorage.getItem(STORAGE_KEY_DIAGNOSTICS);
+    return saved ? JSON.parse(saved) : {
+      purpose: "commute",
+      style: "normal",
+      road: "city",
+      weightFactor: 1.0,
+      isCompleted: true
+    };
+  });
+
+  const [historyLog, setHistoryLog] = useState(() => {
+    const saved = localStorage.getItem(STORAGE_KEY_HISTORY);
+    return saved ? JSON.parse(saved) : [
+      { id: 1, bikeId: 'bike-default-1', date: "2026-03-10", item: "엔진오일", mileage: 4500, note: "정기 오일 교체 완료", cost: 35000 },
+      { id: 2, bikeId: 'bike-default-1', date: "2026-03-15", item: "앞 브레이크 패드", mileage: 4800, note: "패드 소모로 순정 신품 교환", cost: 28000 },
+      { id: 3, bikeId: 'bike-default-1', date: "2026-01-15", item: "에어클리너 필터", mileage: 3800, note: "오염 축적으로 교환", cost: 18000 }
+    ];
+  });
+
+  const [chatMessages, setChatMessages] = useState(() => {
+    const saved = localStorage.getItem(STORAGE_KEY_CHAT);
+    return saved ? JSON.parse(saved) : [
+      { id: 1, sender: "assistant", text: "안녕하세요! 이륜차 정비 전문 AI 미케닉입니다. 소중한 애마의 현재 상태나 스쿠터/매뉴얼 바이크 관련 관리법, 계기판 경고등, 미세한 잡소리 자가 진단 등 무엇이든 물어보세요! 🛠️🏍️\n\n📸 **사진 첨부 진단이 추가되었습니다!** 하단의 클립 아이콘을 통해 정비가 필요해 보이는 부위나 계기판 경고등 사진을 첨부해 질문하시면 AI가 눈으로 보고 정밀히 판독해 줍니다." }
+    ];
+  });
+
+  const [isBikeModalOpen, setIsBikeModalOpen] = useState(false);
+  const [isDiagModalOpen, setIsDiagModalOpen] = useState(false);
+  const [isReplaceModalOpen, setIsReplaceModalOpen] = useState(false);
+  const [selectedReplaceItem, setSelectedReplaceItem] = useState(null);
+
+  const isAnyModalOpen = isBikeModalOpen || isDiagModalOpen || isReplaceModalOpen;
+
+  const [activeTooltipId, setActiveTooltipId] = useState(null);
+  const [editingItemId, setEditingItemId] = useState(null);
+  const [editingIntervalValue, setEditingIntervalValue] = useState('');
+
+  const [replaceMileage, setReplaceMileage] = useState('');
+  const [replaceCost, setReplaceCost] = useState('');
+  const [replaceNote, setReplaceNote] = useState('');
+  const [replaceDate, setReplaceDate] = useState(() => new Date().toISOString().split('T')[0]);
+
+  const [customModelInput, setCustomModelInput] = useState('');
+  const [newMileageInput, setNewMileageInput] = useState('0');
+  const [newYearInput, setNewYearInput] = useState('2023');
+  const [customLogItem, setCustomLogItem] = useState('');
+  const [customLogMileage, setCustomLogMileage] = useState('');
+  const [customLogCost, setCustomLogCost] = useState('');
+  const [customLogNote, setCustomLogNote] = useState('');
+  const [customLogDate, setCustomLogDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [isHistoryAddOpen, setIsHistoryAddOpen] = useState(false);
+
+  const [expandedMonth, setExpandedMonth] = useState(null);
+  const [selectedCalendarDate, setSelectedCalendarDate] = useState(null);
+
+  const [chatImage, setChatImage] = useState(null);
+  const [chatImagePreview, setChatImagePreview] = useState(null);
+  const fileInputRef = useRef(null);
+
+  const [isAiLoading, setIsAiLoading] = useState(false);
+  const [isChatLoading, setIsChatLoading] = useState(false);
+  const [chatInput, setChatInput] = useState('');
+
+  const chatEndRef = useRef(null);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY_BIKES_LIST, JSON.stringify(bikes));
+  }, [bikes]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY_ACTIVE_BIKE_ID, activeBikeId);
+  }, [activeBikeId]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY_DIAGNOSTICS, JSON.stringify(diagnostics));
+  }, [diagnostics]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY_HISTORY, JSON.stringify(historyLog));
+  }, [historyLog]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY_CHAT, JSON.stringify(chatMessages));
+    if (chatEndRef.current) {
+      chatEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [chatMessages]);
+
+  const activeBike = bikes.find(b => b.id === activeBikeId) || bikes[0] || {
+    id: 'temp',
+    modelName: '알 수 없는 바이크',
+    modelYear: 2022,
+    bikeType: 'Scooter',
+    engineSize: '125cc',
+    drivetrainType: 'Belt',
+    currentMileage: 0,
+    consumables: []
+  };
+
+  const bikeAgeYears = Math.max(0, CURRENT_YEAR - (Number(activeBike.modelYear) || 2022));
+
+  const handleUpdateMileage = (value) => {
+    const num = Number(value);
+    if (isNaN(num) || num < 0) return;
+    setBikes(prev => prev.map(b => {
+      if (b.id === activeBike.id) {
+        return {
+          ...b,
+          currentMileage: num,
+          lastUpdated: new Date().toLocaleDateString()
+        };
+      }
+      return b;
+    }));
+  };
+
+  const handleAddBikeSearch = async (e) => {
+    e.preventDefault();
+    if (!customModelInput.trim()) return;
+
+    setIsAiLoading(true);
+    try {
+      const localSpecs = parseLocalBikeSpecs(customModelInput);
+      
+      const systemInstruction = `
+        당신은 이륜차 전문 정비 메커니즘 엔진 전문가입니다. 입력된 기종과 해당 연식 정보를 분석하여 구조 사양과 그 오토바이에 들어가는 핵심 정비 소모품 최소 9개 이상을 JSON 형식으로 응답해 주세요.
+        스쿠터(CVT Belt 구동식, 전용 기어오일 존재)인지 매뉴얼 바이크(구동체인, 대소기어 존재)인지 명확히 파악하여 기종 고유의 소모품(벨트, 무브볼 혹은 대소기어 체인셋 등)을 맞춤 적용해야 합니다.
+        CBR650R 등 매뉴얼 기종은 절대 벨트나 기어오일 같은 스쿠터용 소모품을 내뱉지 말아야 하고 대소기어 체인셋과 체인 청소 점검 주기를 필수 설계해 주어야 합니다.
+        
+        응답 형식 JSON 스키마 예시:
+        {
+          "modelName": "기종의 영문/한글 정확한 네이밍",
+          "bikeType": "Scooter / Manual / Underbone 중 하나",
+          "engineSize": "정확한 배기량 (예: 299cc, 124cc 등)",
+          "drivetrainType": "Belt / Chain / Shaft 중 하나",
+          "consumables": [
+            {
+              "id": "소모품 고유 영문코드",
+              "name": "소모품 한글명",
+              "category": "Engine / Drivetrain / Brake / Others 중 하나",
+              "baseInterval": 기본 교체 주기 주행거리(km 단위 숫자만),
+              "description": "설명"
+            }
+          ]
+        }
+      `;
+
+      const prompt = `기종명: "${customModelInput}", 제조 연식: "${newYearInput}년식"에 대한 완벽한 정비 사양 데이터셋을 작성해줘.`;
+      const aiResponse = await callGeminiAPI(prompt, systemInstruction, true);
+      let parsedData = JSON.parse(aiResponse);
+      
+      if (parsedData && parsedData.consumables) {
+        if (localSpecs.bikeType !== parsedData.bikeType) {
+          parsedData.bikeType = localSpecs.bikeType;
+          parsedData.drivetrainType = localSpecs.drivetrainType;
+          parsedData.consumables = localSpecs.consumables;
+        }
+        
+        if (parsedData.drivetrainType === 'Chain' || parsedData.bikeType !== 'Scooter') {
+          parsedData.consumables = parsedData.consumables.map(item => {
+            if (item.id === 'chain_adjustment' || item.id === 'chain_cleaning') {
+              return {
+                ...item,
+                name: parsedData.bikeType === 'Underbone' ? "체인 점검 및 청소 (윤활)" : "드라이브 체인 청소 및 점검"
+              };
+            }
+            return item;
+          });
+        }
+        
+        const newBikeId = 'bike-' + Date.now();
+        const newBikeObj = {
+          id: newBikeId,
+          modelName: parsedData.modelName,
+          modelYear: Number(newYearInput) || 2022,
+          bikeType: parsedData.bikeType,
+          engineSize: parsedData.engineSize,
+          drivetrainType: parsedData.drivetrainType,
+          currentMileage: Number(newMileageInput) || 0,
+          lastUpdated: new Date().toLocaleDateString(),
+          consumables: parsedData.consumables.map(item => ({
+            ...item,
+            userInterval: null,
+            lastReplacedMileage: 0
+          }))
+        };
+
+        setBikes(prev => [...prev, newBikeObj]);
+        setActiveBikeId(newBikeId);
+        
+        setChatMessages(prev => [
+          ...prev,
+          {
+            id: Date.now(),
+            sender: "assistant",
+            text: `🏍️ 새로운 애마 **${parsedData.modelName} (${newYearInput}년식)** 정비 도크가 연동되었습니다!\n**구동 방식: ${parsedData.bikeType === 'Scooter' ? 'CVT 무단 벨트식' : parsedData.bikeType === 'Underbone' ? '원심 언더본 체인식' : '매뉴얼 리턴 체인식'}**\n정밀 소모품 체크 리스트가 이 기종 고유 사양에 맞게 완성되었습니다.`
+          }
+        ]);
+        
+        setIsBikeModalOpen(false);
+      }
+    } catch (err) {
+      console.error("오프라인 복구 파서 트리거:", err);
+      const localSpecs = parseLocalBikeSpecs(customModelInput);
+      const fallbackId = 'bike-fallback-' + Date.now();
+      const fallbackBike = {
+        id: fallbackId,
+        modelName: localSpecs.modelName,
+        modelYear: Number(newYearInput) || 2022,
+        bikeType: localSpecs.bikeType,
+        engineSize: localSpecs.engineSize,
+        drivetrainType: localSpecs.drivetrainType,
+        currentMileage: Number(newMileageInput) || 0,
+        lastUpdated: new Date().toLocaleDateString(),
+        consumables: localSpecs.consumables.map(item => ({
+          ...item,
+          userInterval: null,
+          lastReplacedMileage: 0
+        }))
+      };
+
+      setBikes(prev => [...prev, fallbackBike]);
+      setActiveBikeId(fallbackId);
+      setIsBikeModalOpen(false);
+    } finally {
+      setIsAiLoading(false);
+      setCustomModelInput('');
+      setNewMileageInput('0');
+      setNewYearInput('2023');
+    }
+  };
+
+  const handleSaveCustomInterval = (itemId) => {
+    const val = Number(editingIntervalValue);
+    if (isNaN(val) || val <= 0) {
+      setEditingItemId(null);
+      return;
+    }
+
+    setBikes(prev => prev.map(b => {
+      if (b.id === activeBike.id) {
+        return {
+          ...b,
+          consumables: b.consumables.map(c => {
+            if (c.id === itemId) {
+              return { ...c, userInterval: val };
+            }
+            return c;
+          })
+        };
+      }
+      return b;
+    }));
+
+    setEditingItemId(null);
+    setEditingIntervalValue('');
+  };
+
+  const handleStartEditInterval = (item) => {
+    setEditingItemId(item.id);
+    setEditingIntervalValue((item.userInterval || item.baseInterval).toString());
+  };
+
+  const handleOpenReplaceModal = (item) => {
+    setSelectedReplaceItem(item);
+    setReplaceMileage(activeBike.currentMileage);
+    setReplaceCost('');
+    setReplaceNote('');
+    setReplaceDate(new Date().toISOString().split('T')[0]);
+    setIsReplaceModalOpen(true);
+  };
+
+  const handleConfirmReplace = (e) => {
+    e.preventDefault();
+    if (!selectedReplaceItem) return;
+
+    const mileageVal = Number(replaceMileage) || activeBike.currentMileage;
+    const costVal = Number(replaceCost) || 0;
+
+    setBikes(prev => prev.map(b => {
+      if (b.id === activeBike.id) {
+        return {
+          ...b,
+          consumables: b.consumables.map(item => {
+            if (item.id === selectedReplaceItem.id) {
+              return {
+                ...item,
+                lastReplacedMileage: mileageVal
+              };
+            }
+            return item;
+          })
+        };
+      }
+      return b;
+    }));
+
+    const newLog = {
+      id: Date.now(),
+      bikeId: activeBike.id,
+      date: replaceDate || new Date().toISOString().split('T')[0],
+      item: selectedReplaceItem.name,
+      mileage: mileageVal,
+      cost: costVal,
+      note: replaceNote.trim() || `정비 소모품 교체 이행 완료`
+    };
+    
+    setHistoryLog(prev => [newLog, ...prev]);
+    setIsReplaceModalOpen(false);
+    setSelectedReplaceItem(null);
+    setActiveTab('garage');
+  };
+
+  const applyDiagnostics = (purpose, style, road) => {
+    let factor = 1.0;
+    if (purpose === "delivery") factor *= 0.65;
+    else if (purpose === "tour") factor *= 1.15;
+
+    if (style === "aggressive") factor *= 0.75;
+    else if (style === "gentle") factor *= 1.10;
+
+    if (road === "dusty") factor *= 0.80;
+    else if (road === "highway") factor *= 1.05;
+
+    const finalFactor = parseFloat(factor.toFixed(2));
+    
+    setDiagnostics({
+      purpose,
+      style,
+      road,
+      weightFactor: finalFactor,
+      isCompleted: true
+    });
+    setIsDiagModalOpen(false);
+
+    setChatMessages(prev => [
+      ...prev,
+      {
+        id: Date.now(),
+        sender: "assistant",
+        text: `📊 **[자가진단 가중치 분석 안내]**\n현재 감지된 최적 가속수명 가중치는 **${finalFactor}배** 입니다.\n소모품 교체 및 점검 알림 시계가 정속 상태보다 조금 더 정밀하고 유연하게 미케닉 실시간 조정에 동기화됩니다!`
+      }
+    ]);
+  };
+
+  const handleAddHistoryLog = (e) => {
+    e.preventDefault();
+    if (!customLogItem.trim() || !customLogMileage) return;
+
+    const newLog = {
+      id: Date.now(),
+      bikeId: activeBike.id,
+      date: customLogDate || new Date().toISOString().split('T')[0],
+      item: customLogItem,
+      mileage: Number(customLogMileage),
+      cost: Number(customLogCost) || 0,
+      note: customLogNote || "수동 정비 기록 추가됨"
+    };
+
+    setHistoryLog(prev => [newLog, ...prev]);
+    setCustomLogItem('');
+    setCustomLogMileage('');
+    setCustomLogCost('');
+    setCustomLogNote('');
+    setCustomLogDate(new Date().toISOString().split('T')[0]);
+    setIsHistoryAddOpen(false);
+  };
+
+  const handleDeleteLog = (id) => {
+    setHistoryLog(prev => prev.filter(log => log.id !== id));
+  };
+
+  const handleImageAttachmentChange = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setChatImage({
+        mimeType: file.type,
+        data: reader.result.split(',')[1]
+      });
+      setChatImagePreview(reader.result);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const clearAttachedImage = () => {
+    setChatImage(null);
+    setChatImagePreview(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
+  // Gemini API Multimodal fetch engine
+  const callGeminiAPI = async (prompt, systemInstruction = "", outputJson = false, attachedImage = null) => {
+    const apiKey = ""; 
+    const model = "gemini-2.5-flash-preview-09-2025";
+    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+
+    const parts = [{ text: prompt }];
+    
+    if (attachedImage && attachedImage.data) {
+      parts.push({
+        inlineData: {
+          mimeType: attachedImage.mimeType,
+          data: attachedImage.data
+        }
+      });
+    }
+
+    const payload = {
+      contents: [{ role: "user", parts }],
+      systemInstruction: {
+        parts: [{ text: systemInstruction }]
+      }
+    };
+
+    if (outputJson) {
+      payload.generationConfig = {
+        responseMimeType: "application/json"
+      };
+    }
+
+    let delay = 1000;
+    for (let attempt = 0; attempt < 4; attempt++) {
+      try {
+        const response = await fetch(apiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        if (response.status === 429) {
+          await new Promise(resolve => setTimeout(resolve, delay));
+          delay *= 2;
+          continue;
+        }
+
+        if (!response.ok) {
+          throw new Error(`API Connection Failed (${response.status})`);
+        }
+
+        const result = await response.json();
+        return result.candidates?.[0]?.content?.parts?.[0]?.text;
+      } catch (err) {
+        if (attempt === 3) throw err;
+        await new Promise(resolve => setTimeout(resolve, delay));
+        delay *= 2;
+      }
+    }
+  };
+
+  const handleSendChatMessage = async (e) => {
+    e.preventDefault();
+    if ((!chatInput.trim() && !chatImage) || isChatLoading) return;
+
+    const userText = chatInput;
+    const attachedImgToSend = chatImage;
+    const localImgPreview = chatImagePreview;
+
+    setChatInput('');
+    clearAttachedImage();
+
+    setChatMessages(prev => [
+      ...prev, 
+      { 
+        id: Date.now(), 
+        sender: "user", 
+        text: userText || "사진 분석을 요청합니다.",
+        image: localImgPreview
+      }
+    ]);
+    
+    setIsChatLoading(true);
+
+    try {
+      const bikeContext = `
+        [현재 선택된 바이크 정보]
+        기종명: ${activeBike.modelName}
+        연식: ${activeBike.modelYear || 2022}년식 (2026년 현재 ${CURRENT_YEAR - (activeBike.modelYear || 2022)}년 경과)
+        타입: ${activeBike.bikeType} (드라이브방식: ${activeBike.drivetrainType})
+        현재 주행거리: ${activeBike.currentMileage} km
+        [라이딩 프로필 정보]
+        운행용도: ${diagnostics.purpose}, 스로틀성향: ${diagnostics.style}, 환경: ${diagnostics.road}
+        가혹도 가중치: ${diagnostics.weightFactor}배
+      `;
+
+      const systemPrompt = `
+        당신은 국내 최고 성능의 오토바이 정비 명장 "AI 미케닉 라이더"입니다.
+        소중한 정비 지식을 녹여 답변해 주십시오.
+        사용자가 오토바이 결함 부위 사진을 전송했을 수 있습니다.
+        제공된 사진의 외관적 손상도나 윤활막 오염 여부, 계기판 경고 부위 등을 예리하게 판별하고 오토바이 기종 프로필 및 연식 사양에 융합해 실무 지침 가이드라인을 제시하세요.
+        ${bikeContext}
+      `;
+
+      const aiReply = await callGeminiAPI(
+        userText || "첨부한 오토바이 결함 사진의 진단 및 정비 꿀팁 조언을 부탁해.", 
+        systemPrompt, 
+        false, 
+        attachedImgToSend
+      );
+      
+      setChatMessages(prev => [
+        ...prev, 
+        { 
+          id: Date.now() + 1, 
+          sender: "assistant", 
+          text: aiReply 
+        }
+      ]);
+    } catch (err) {
+      console.error(err);
+      setChatMessages(prev => [
+        ...prev,
+        {
+          id: Date.now() + 1,
+          sender: "assistant",
+          text: "🔧 정비소 멀티모달 센서 장치에 미세 혼선이 생겼습니다. 네트워크 절연체를 확인해 주시거나 사진을 다시 업로드해 주세요!"
+        }
+      ]);
+    } finally {
+      setIsChatLoading(false);
+    }
+  };
+
+  const triggerAiAgingReport = async () => {
+    setIsChatLoading(true);
+    const reportPrompt = `
+      현재 내 차량은 ${activeBike.modelName} ${activeBike.modelYear}년식이고, 누적 주행거리는 ${activeBike.currentMileage}km야.
+      2026년인 지금 시점에서, 평소 육안으로 쉽게 점검하기 어려운 '시간의 흐름에 따른 고밀도 위험 요소'를 집중 조명해서 나에게 3줄 요약 조언서 형태로 친절하면서 단호하게 잔소리를 해줘!
+    `;
+
+    setChatMessages(prev => [
+      ...prev,
+      { id: Date.now(), sender: "user", text: `✨ [${activeBike.modelName} ${activeBike.modelYear}년식 / ${activeBike.currentMileage.toLocaleString()}km] AI 연식 안심 진단서 발행 요청!` }
+    ]);
+
+    try {
+      const systemPrompt = `당신은 25년 차 오토바이 하체 및 엔진 리빌드 전문 1급 미케닉 명장입니다. 연식 경과에 따른 고무/배선/포크오일 경화 증상을 날카롭게 진단해 줍니다.`;
+      const aiReply = await callGeminiAPI(reportPrompt, systemPrompt, false);
+      setChatMessages(prev => [
+        ...prev,
+        { id: Date.now() + 1, sender: "assistant", text: aiReply }
+      ]);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsChatLoading(false);
+    }
+  };
+
+  // 월별 차계부 통계 계산
+  const getMonthlyStats = () => {
+    const stats = {};
+    const bikeFilteredLogs = historyLog.filter(log => log.bikeId === activeBike.id);
+    
+    bikeFilteredLogs.forEach(log => {
+      if (!log.date) return;
+      const monthKey = log.date.substring(0, 7); // YYYY-MM
+      const cost = Number(log.cost) || 0;
+      if (!stats[monthKey]) {
+        stats[monthKey] = {
+          month: monthKey,
+          total: 0,
+          items: []
+        };
+      }
+      stats[monthKey].total += cost;
+      stats[monthKey].items.push(log);
+    });
+
+    return Object.values(stats).sort((a, b) => b.month.localeCompare(a.month));
+  };
+
+  // Derived state values
+  const monthlyStats = getMonthlyStats();
+  const currentBikeLogs = historyLog.filter(log => log.bikeId === activeBike.id);
+  const grandTotalCost = currentBikeLogs.reduce((acc, curr) => acc + (Number(curr.cost) || 0), 0);
+
+  const renderTossCalendar = (monthKey, items) => {
+    const [yearStr, monthStr] = monthKey.split('-');
+    const year = parseInt(yearStr, 10);
+    const month = parseInt(monthStr, 10) - 1;
+
+    const firstDayOfWeek = new Date(year, month, 1).getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+    const blanks = Array(firstDayOfWeek).fill(null);
+    const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
+    const gridDays = [...blanks, ...days];
+
+    const itemsByDay = {};
+    items.forEach(item => {
+      if (!item.date) return;
+      const d = parseInt(item.date.split('-')[2], 10);
+      if (!itemsByDay[d]) itemsByDay[d] = [];
+      itemsByDay[d].push(item);
+    });
+
+    return (
+      <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800 space-y-4 animate-fadeIn" onClick={(e) => e.stopPropagation()}>
+        <span className={`text-[10px] font-bold ${theme.accentText} uppercase tracking-wider block mb-2`}>📅 터치하여 일별 상세 명세 조회</span>
+        
+        <div className="grid grid-cols-7 gap-1 text-center text-[10px] font-bold text-slate-400 dark:text-slate-600 mb-1">
+          {['일', '월', '화', '수', '목', '금', '토'].map((day, idx) => (
+            <span key={day} className={idx === 0 ? 'text-rose-400' : idx === 6 ? 'text-sky-400' : ''}>
+              {day}
+            </span>
+          ))}
+        </div>
+
+        <div className="grid grid-cols-7 gap-1">
+          {gridDays.map((day, idx) => {
+            if (day === null) {
+              return <div key={`blank-${idx}`} className="h-11"></div>;
+            }
+
+            const dateStr = `${monthKey}-${String(day).padStart(2, '0')}`;
+            const dayLogs = itemsByDay[day] || [];
+            const dayCost = dayLogs.reduce((acc, curr) => acc + (Number(curr.cost) || 0), 0);
+            const isSelected = selectedCalendarDate === dateStr;
+
+            return (
+              <div 
+                key={`day-${day}`}
+                onClick={() => {
+                  if (dayLogs.length > 0) {
+                    setSelectedCalendarDate(dateStr);
+                  }
+                }}
+                className={`h-11 rounded-lg border flex flex-col justify-between p-1 cursor-pointer transition-all ${
+                  dayLogs.length > 0
+                    ? isSelected 
+                      ? `${isDark ? 'bg-cyan-950 border-cyan-500 text-cyan-200' : 'bg-sky-50 border-sky-450 text-sky-800'} font-black shadow-inner`
+                      : `${isDark ? 'bg-slate-900 border-slate-800 hover:border-cyan-500 text-slate-200' : 'bg-slate-100 border-slate-200 hover:border-sky-400 text-slate-800'}`
+                    : `border-transparent cursor-default`
+                }`}
+              >
+                <span className={`text-[9px] ${dayLogs.length > 0 ? 'font-black' : 'font-normal opacity-50'}`}>{day}</span>
+                
+                {dayCost > 0 && (
+                  <span className={`text-[8px] text-right truncate font-bold ${
+                    isSelected 
+                      ? isDark ? 'text-cyan-400' : 'text-sky-600'
+                      : isDark ? 'text-cyan-500' : 'text-sky-500'
+                  }`}>
+                    {dayCost >= 10000 
+                      ? `${(dayCost / 10000).toFixed(0)}만` 
+                      : `${(dayCost / 1000).toFixed(0)}천`}
+                  </span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {selectedCalendarDate && selectedCalendarDate.startsWith(monthKey) && (
+          <div className={`p-3 rounded-xl border animate-fadeIn ${isDark ? 'bg-slate-950 border-slate-850' : 'bg-slate-50 border-slate-200'}`}>
+            <div className="flex justify-between items-center mb-2 pb-1.5 border-b border-dashed border-slate-200 dark:border-slate-800">
+              <span className={`text-[10px] font-black ${theme.titleText}`}>
+                🛠 {selectedCalendarDate.split('-')[1]}월 {selectedCalendarDate.split('-')[2]}일 정비 내역
+              </span>
+              <button 
+                onClick={() => setSelectedCalendarDate(null)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </div>
+
+            <div className="space-y-2">
+              {(itemsByDay[parseInt(selectedCalendarDate.split('-')[2], 10)] || []).map(log => (
+                <div key={log.id} className="text-xs space-y-1">
+                  <div className="flex justify-between font-bold">
+                    <span className={theme.titleText}>{log.item}</span>
+                    <span className={theme.accentText}>₩{Number(log.cost || 0).toLocaleString()}</span>
+                  </div>
+                  <div className={`flex justify-between text-[10px] ${theme.subText}`}>
+                    <span>적용 주행거리: {log.mileage.toLocaleString()} km</span>
+                    {log.note && <span className="italic opacity-80">"{log.note}"</span>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div className={`min-h-screen ${theme.bg} font-sans flex flex-col items-center transition-colors duration-200`}>
+      
+      <style>{`
+        input[type="number"]::-webkit-outer-spin-button,
+        input[type="number"]::-webkit-inner-spin-button {
+          -webkit-appearance: none;
+          margin: 0;
+        }
+        input[type="number"] {
+          -moz-appearance: textfield;
+        }
+        @keyframes fadeIn {
+          from { opacity: 0; transform: translateY(5px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        .animate-fadeIn {
+          animation: fadeIn 0.2s ease-out forwards;
+        }
+      `}</style>
+      
+      {/* APP TOP BAR */}
+      <header className={`w-full max-w-md ${theme.header} sticky top-0 z-30 px-4 py-3 flex items-center justify-between transition-all duration-300 ${isAnyModalOpen ? 'blur-[2px] opacity-45 pointer-events-none' : ''}`}>
+        <div className="flex items-center gap-2">
+          <div className={`${theme.accentBg} p-2 rounded-lg text-white shadow-sm transition-all`}>
+            <Bike className="w-5 h-5" />
+          </div>
+          <div>
+            <h1 className={`font-extrabold text-lg ${theme.headerTitle} tracking-tight flex items-center gap-1.5`}>
+              라이더<span className={theme.accentText}>AI</span>
+              <span className={`text-[10px] ${theme.headerSub} px-1.5 py-0.5 rounded-full font-bold`}>Mycle 2.5 Pro</span>
+            </h1>
+          </div>
+        </div>
+        
+        <div className="flex items-center gap-2">
+          <button 
+            onClick={() => setIsDiagModalOpen(true)}
+            className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all duration-250 ${theme.accentLightBg}`}
+          >
+            <Sliders className="w-3.5 h-3.5" />
+            {(diagnostics.weightFactor * 100).toFixed(0)}%
+          </button>
+        </div>
+      </header>
+
+      {/* MOBILE CONTAINER BODY */}
+      <main className={`w-full max-w-md ${theme.container} min-h-[calc(100vh-125px)] flex-1 pb-24 px-4 pt-4 transition-colors`}>
+
+        {/* TAB 1: DASHBOARD */}
+        {activeTab === 'dashboard' && (
+          <div className="space-y-4">
+            
+            {/* BIKE PROFILE BOARD */}
+            <section className={`${theme.card} rounded-2xl p-5 border shadow-md mb-4 relative overflow-hidden transition-all duration-200`}>
+              <div className={`absolute right-[-10px] bottom-[-15px] ${isDark ? 'text-slate-800/25' : 'text-slate-100'} pointer-events-none transition-colors`}>
+                <Bike className="w-32 h-32" />
+              </div>
+              
+              <div className="flex justify-between items-center mb-3 gap-3">
+                <div className="min-w-0 flex-1">
+                  <span className={`text-[10px] font-bold ${theme.accentText} tracking-widest uppercase block mb-1`}>My Garage Spec</span>
+                  
+                  <div 
+                    onClick={() => setIsBikeModalOpen(true)}
+                    className={`inline-flex items-center gap-1.5 ${isDark ? 'bg-slate-950/90 border-slate-800 hover:border-cyan-500/50' : 'bg-slate-100/80 border-slate-200 hover:border-sky-500/50'} border rounded-xl px-3 py-1.5 cursor-pointer transition-all max-w-full`}
+                  >
+                    <span className={`font-black text-sm ${theme.titleText} truncate max-w-[130px] sm:max-w-[180px]`}>
+                      {activeBike.modelName} <span className="text-xs opacity-65 font-medium">({activeBike.modelYear || 2022}년식)</span>
+                    </span>
+                    <ChevronRight className="w-3.5 h-3.5 text-slate-400 flex-shrink-0 transform rotate-90" />
+                  </div>
+
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    <span className={`text-[11px] font-semibold ${theme.badge} px-2.5 py-0.5 rounded-md border`}>
+                      {activeBike.bikeType}
+                    </span>
+                    <span className={`text-[11px] font-semibold ${theme.badge} px-2.5 py-0.5 rounded-md border`}>
+                      배기량: {activeBike.engineSize}
+                    </span>
+                    <span className={`text-[11px] font-extrabold ${theme.accentLightBg} px-2.5 py-0.5 rounded-md border border-transparent`}>
+                      {activeBike.drivetrainType === 'Belt' ? 'CVT 무단벨트' : '드라이브 체인'}
+                    </span>
+                  </div>
+                </div>
+                
+                <button 
+                  onClick={() => setIsBikeModalOpen(true)}
+                  className={`flex-shrink-0 ${isDark ? 'bg-slate-800 hover:bg-slate-75 text-slate-200 border-slate-700' : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'} text-xs px-3 py-2 rounded-xl border flex items-center gap-1 transition-all font-semibold`}
+                >
+                  차고관리 <Plus className={`w-3.5 h-3.5 ${theme.accentText}`} />
+                </button>
+              </div>
+
+              <div className={`mt-5 pt-4 border-t ${isDark ? 'border-slate-800/80' : 'border-slate-200'} grid grid-cols-2 gap-4`}>
+                <div>
+                  <span className={`text-xs ${theme.subText} flex items-center gap-1`}><Gauge className="w-3.5 h-3.5 text-slate-400" /> 현재 주행거리</span>
+                  <div className="flex items-baseline gap-1 mt-1">
+                    <input 
+                      type="number" 
+                      value={activeBike.currentMileage}
+                      onChange={(e) => handleUpdateMileage(e.target.value)}
+                      className={`w-24 px-1.5 py-0.5 text-lg font-black text-right outline-none rounded-md ${theme.input}`}
+                    />
+                    <span className={`text-xs ${theme.subText} font-bold`}>km</span>
+                  </div>
+                </div>
+                
+                <div>
+                  <span className={`text-xs ${theme.subText} flex items-center gap-1`}><Award className={`w-3.5 h-3.5 ${theme.accentText}`} /> 주행 가중 계수</span>
+                  <div className="mt-1 flex items-baseline gap-1">
+                    <span className={`text-xl font-extrabold ${theme.accentText}`}>{diagnostics.weightFactor}x</span>
+                    <span className={`text-[10px] ${theme.subText} font-medium`}>(주행가중 반영)</span>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <div className="flex items-center justify-between px-1">
+              <div className="flex items-center gap-1.5">
+                <Wrench className={`w-4 h-4 ${theme.accentText}`} />
+                <h3 className={`font-extrabold ${theme.titleText}`}>정밀 소모품 체크리스트</h3>
+              </div>
+              <span className={`text-[11px] ${theme.subText}`}>교체시기 자율 설정 가능</span>
+            </div>
+
+            <div className="space-y-3">
+              {activeBike.consumables?.map((item) => {
+                // AI 고유 추천 주기 계산
+                const recommendedInterval = Math.round(item.baseInterval * diagnostics.weightFactor);
+                
+                // 최종 목표 주기 계산
+                const myTargetInterval = item.userInterval || recommendedInterval;
+
+                // 정비 이후 주행 거리 계산
+                const actualTraveledSinceLastReplace = Math.max(0, activeBike.currentMileage - item.lastReplacedMileage);
+                
+                // 수명 게이지 계산
+                let remainingPercent = Math.max(0, 100 - Math.round((actualTraveledSinceLastReplace / myTargetInterval) * 100));
+                const remainingDistance = Math.max(0, myTargetInterval - actualTraveledSinceLastReplace);
+                const isOverdue = actualTraveledSinceLastReplace >= myTargetInterval;
+
+                let barColor = isDark ? "bg-cyan-500" : "bg-sky-500";
+                let textColor = isDark ? "text-cyan-400" : "text-sky-600";
+                if (remainingPercent <= 20) {
+                  barColor = "bg-red-500 animate-pulse";
+                  textColor = "text-red-500 font-black";
+                } else if (remainingPercent <= 50) {
+                  barColor = "bg-yellow-500";
+                  textColor = "text-yellow-600 dark:text-yellow-400";
+                }
+
+                return (
+                  <div 
+                    key={item.id} 
+                    className={`p-4 rounded-xl border transition-all duration-200 ${theme.card} relative ${isOverdue ? 'border-red-500/30 bg-red-500/5' : ''}`}
+                  >
+                    <div className="flex justify-between items-start mb-2.5">
+                      <div>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className={`text-[9px] uppercase px-1.5 py-0.5 rounded font-bold ${
+                            item.category === 'Engine' ? 'bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-400' :
+                            item.category === 'Drivetrain' ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-400' :
+                            item.category === 'Brake' ? 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-400' :
+                            'bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                          }`}>
+                            {item.category === 'Engine' ? '엔진계통' :
+                             item.category === 'Drivetrain' ? '구동계통' :
+                             item.category === 'Brake' ? '제동계통' : '기타장비'}
+                          </span>
+                          
+                          <h4 className={`font-bold ${theme.titleText} text-sm tracking-tight`}>{item.name}</h4>
+                          
+                          <button 
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setActiveTooltipId(activeTooltipId === item.id ? null : item.id);
+                            }}
+                            className={`w-5 h-5 rounded-full ${isDark ? 'bg-slate-800 hover:bg-slate-75 text-slate-300' : 'bg-slate-200 hover:bg-slate-300 text-slate-700'} inline-flex items-center justify-center text-xs font-black transition-all ml-1`}
+                            title="설명 보기"
+                          >
+                            ?
+                          </button>
+                        </div>
+
+                        {activeTooltipId === item.id && (
+                          <div className={`absolute z-30 left-4 right-4 mt-2 p-3 ${theme.tooltip} border rounded-lg shadow-xl text-xs animate-fadeIn`}>
+                            <div className={`absolute top-[-6px] left-24 w-3 h-3 ${theme.tooltipArrow} border-t border-l transform rotate-45`}></div>
+                            <div className="flex justify-between items-start">
+                              <p className="leading-relaxed font-medium">{item.description}</p>
+                              <button 
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setActiveTooltipId(null);
+                                }}
+                                className={`${theme.accentText} ${theme.accentTextHover} ml-2 font-black`}
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                      
+                      <div className="text-right">
+                        <span className={`text-xs ${textColor}`}>
+                          {isOverdue ? '정비 요망!' : `잔여 ${remainingPercent}%`}
+                        </span>
+                        <p className={`text-[10px] ${theme.subText} mt-0.5`}>
+                          {isOverdue ? '정비 주기 초과' : `${remainingDistance.toLocaleString()} km 남음`}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className={`w-full ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-100 border-slate-200'} rounded-full h-2 overflow-hidden mb-3.5 border`}>
+                      <div 
+                        className={`h-full rounded-full transition-all duration-500 ${barColor}`} 
+                        style={{ width: `${remainingPercent}%` }}
+                      ></div>
+                    </div>
+
+                    <div className={`flex justify-between items-center text-xs ${isDark ? 'bg-slate-950/40 text-slate-400' : 'bg-slate-50 text-slate-600'} px-3 py-3 rounded-xl flex-wrap gap-3`}>
+                      <div className="flex flex-col gap-1.5 flex-1 min-w-[200px]">
+                        <div className="flex flex-wrap items-center gap-x-2 text-[10px]">
+                          <span>최근정비: <strong className={theme.titleText}>{item.lastReplacedMileage.toLocaleString()} km</strong></span>
+                          <span>|</span>
+                          {/* "정비후 주행"으로 수정 완료 */}
+                          <span>정비후 주행: <strong className={theme.accentText}>{actualTraveledSinceLastReplace.toLocaleString()} km</strong></span>
+                        </div>
+                        
+                        <div className="flex flex-wrap items-center gap-2 mt-0.5">
+                          {editingItemId === item.id ? (
+                            <div className={`flex items-center gap-2 border p-1.5 rounded-lg shadow-inner ${isDark ? 'bg-slate-950 border-cyan-500/30' : 'bg-white border-sky-500/30'} animate-fadeIn`} onClick={e => e.stopPropagation()}>
+                              <span className={`text-[10px] ${theme.accentText} font-extrabold px-1`}>주기변경</span>
+                              <input 
+                                type="number"
+                                value={editingIntervalValue}
+                                onChange={(e) => setEditingIntervalValue(e.target.value)}
+                                className={`w-24 text-xs rounded-md px-2 py-1 font-black outline-none text-right ${theme.input}`}
+                                placeholder="나의 주기"
+                                autoFocus
+                              />
+                              <span className={`text-[11px] ${theme.titleText} font-bold`}>km</span>
+                              <button 
+                                onClick={() => handleSaveCustomInterval(item.id)}
+                                className={`p-1.5 rounded-md transition-all shadow-sm flex items-center justify-center ${theme.accentBg}`}
+                                title="저장"
+                              >
+                                <Check className="w-3.5 h-3.5" />
+                              </button>
+                              <button 
+                                onClick={() => setEditingItemId(null)}
+                                className={`p-1.5 rounded-md transition-all flex items-center justify-center ${isDark ? 'bg-slate-800 text-slate-300 hover:bg-slate-755' : 'bg-slate-200 text-slate-700 hover:bg-slate-300'}`}
+                                title="취소"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          ) : (
+                            <span className={`flex items-center gap-1 text-[11px] ${theme.subText}`}>
+                              나의 주기설정: <strong className={`ml-0.5 ${theme.titleText}`}>{myTargetInterval.toLocaleString()} km</strong>
+                              <button 
+                                onClick={() => handleStartEditInterval(item)}
+                                className={`transition-all p-1 ml-1 rounded ${isDark ? 'text-cyan-500 bg-cyan-500/10 hover:text-cyan-400' : 'text-sky-500 bg-sky-500/10 hover:text-sky-600'}`}
+                                title="나의 전용 교체주기 수정"
+                              >
+                                <Edit2 className="w-3 h-3" />
+                              </button>
+                            </span>
+                          )}
+                          <span className={`text-[11px] ${theme.subText} self-center`}>| 추천교체시기: <strong className="text-amber-500 dark:text-amber-400 font-extrabold">{recommendedInterval.toLocaleString()} km</strong></span>
+                        </div>
+                      </div>
+                      
+                      <button
+                        onClick={() => handleOpenReplaceModal(item)}
+                        className={`px-4 py-2.5 rounded-xl font-extrabold text-xs flex items-center gap-1.5 transition-all shadow-sm ${
+                          isOverdue 
+                            ? 'bg-red-600 hover:bg-red-500 text-white animate-pulse' 
+                            : `${isDark ? 'bg-slate-800 hover:bg-slate-75 border-slate-700 text-slate-200' : 'bg-slate-200 hover:bg-slate-300 border-slate-300 text-slate-700'}`
+                        }`}
+                      >
+                        <CheckCircle2 className="w-4 h-4" />
+                        정비 완료
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className={`border rounded-2xl p-4 flex gap-3.5 items-center mt-6 ${isDark ? 'bg-cyan-950/20 border-cyan-900/30' : 'bg-sky-50/50 border-sky-200'}`}>
+              <div className={`p-2.5 rounded-xl ${theme.accentLightBg} border border-transparent`}>
+                <Sparkles className="w-6 h-6 animate-pulse" />
+              </div>
+              <div className="flex-1">
+                <h5 className={`font-bold text-xs ${theme.accentText}`}>가중치 정밀 진단을 진행하셨나요?</h5>
+                <p className={`text-[11px] ${theme.subText} mt-1 leading-snug`}>
+                  운행 모드를 '배달 영업용' 등으로 설정하면 극심한 가혹 조건이 반영되어 수명 주기가 자동 단축됩니다.
+                </p>
+                <button 
+                  onClick={() => setIsDiagModalOpen(true)}
+                  className={`mt-2.5 text-[11px] ${theme.accentText} font-extrabold hover:underline flex items-center gap-0.5`}
+                >
+                  주행 프로필 진단하기 <ChevronRight className="w-3 h-3" />
+                </button>
+              </div>
+            </div>
+
+          </div>
+        )}
+
+        {/* TAB 2: GARAGE LOGS */}
+        {activeTab === 'garage' && (
+          <div className="space-y-4">
+            
+            <div className="flex justify-between items-center px-1">
+              <div className="flex items-center gap-1.5">
+                <History className={`w-4 h-4 ${theme.accentText}`} />
+                <h3 className={`font-extrabold ${theme.titleText}`}>정비 기록 수불부</h3>
+              </div>
+              <button 
+                onClick={() => setIsHistoryAddOpen(true)}
+                className={`text-white text-xs font-bold px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition ${theme.accentBg}`}
+              >
+                <Plus className="w-3.5 h-3.5" /> 수동 기록 추가
+              </button>
+            </div>
+
+            {isHistoryAddOpen && (
+              <form onSubmit={handleAddHistoryLog} className={`p-4 rounded-xl border space-y-3 ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-250 shadow-md'}`}>
+                <div className="flex justify-between items-center mb-1">
+                  <h4 className={`text-xs font-bold ${theme.accentText}`}>새 정비 기록 입력 ({activeBike.modelName})</h4>
+                  <button type="button" onClick={() => setIsHistoryAddOpen(false)} className={`hover:${theme.titleText} ${theme.subText}`}>
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+                
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className={`block text-[10px] ${theme.subText} font-bold mb-1`}>정비 소모품명 *</label>
+                    <input 
+                      type="text" 
+                      placeholder="예: 엔진오일, 플러그, 타이어 등"
+                      value={customLogItem}
+                      onChange={(e) => setCustomLogItem(e.target.value)}
+                      required
+                      className={`w-full rounded-lg px-3 py-2 text-sm outline-none ${theme.input}`}
+                    />
+                  </div>
+                  <div>
+                    <label className={`block text-[10px] ${theme.subText} font-bold mb-1`}>정비 일자 *</label>
+                    <input 
+                      type="date" 
+                      value={customLogDate}
+                      onChange={(e) => setCustomLogDate(e.target.value)}
+                      required
+                      className={`w-full rounded-lg px-3 py-2 text-sm outline-none ${theme.input}`}
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className={`block text-[10px] ${theme.subText} font-bold mb-1`}>정비시 주행거리 (km) *</label>
+                    <input 
+                      type="number" 
+                      placeholder="예: 5200"
+                      value={customLogMileage}
+                      onChange={(e) => setCustomLogMileage(e.target.value)}
+                      required
+                      className={`w-full rounded-lg px-3 py-2 text-sm outline-none ${theme.input}`}
+                    />
+                  </div>
+                  <div>
+                    <label className={`block text-[10px] ${theme.subText} font-bold mb-1`}>교체 비용 (원)</label>
+                    <input 
+                      type="number" 
+                      placeholder="예: 35000"
+                      value={customLogCost}
+                      onChange={(e) => setCustomLogCost(e.target.value)}
+                      className={`w-full rounded-lg px-3 py-2 text-sm outline-none ${theme.input}`}
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className={`block text-[10px] ${theme.subText} font-bold mb-1`}>메모 (옵션)</label>
+                  <input 
+                    type="text" 
+                    placeholder="예: 필터 동시 교체 완료"
+                    value={customLogNote}
+                    onChange={(e) => setCustomLogNote(e.target.value)}
+                    className={`w-full rounded-lg px-3 py-2 text-sm outline-none ${theme.input}`}
+                  />
+                </div>
+
+                <button 
+                  type="submit"
+                  className={`w-full text-white text-xs font-bold py-2.5 rounded-lg transition ${theme.accentBg}`}
+                >
+                  기록 저장하기
+                </button>
+              </form>
+            )}
+
+            <div className="space-y-3.5">
+              {currentBikeLogs.length === 0 ? (
+                <div className={`text-center py-12 ${theme.subText}`}>
+                  <History className="w-10 h-10 mx-auto opacity-30 mb-2" />
+                  <p className="text-sm">현재 오토바이에 저장된 정비 이력이 없습니다.</p>
+                  <p className="text-xs mt-1 opacity-60">소모품 체크리스트에서 교체 완료 등록을 진행해 보세요!</p>
+                </div>
+              ) : (
+                currentBikeLogs.map((log) => (
+                  <div key={log.id} className={`${theme.card} border rounded-xl p-4 flex items-start gap-3.5 relative transition duration-200`}>
+                    <div className={`p-2.5 rounded-lg border ${theme.iconBox} mt-0.5`}>
+                      <Wrench className="w-4 h-4" />
+                    </div>
+                    
+                    <div className="flex-1 min-w-0">
+                      <div className="flex justify-between items-start">
+                        <h4 className={`font-extrabold ${theme.titleText} text-sm truncate`}>{log.item}</h4>
+                        <span className={`text-[10px] ${theme.subText} font-medium flex items-center gap-1`}>
+                          <Calendar className="w-3 h-3" /> {log.date}
+                        </span>
+                      </div>
+                      
+                      <div className="flex items-center gap-2 mt-1.5">
+                        <span className={`text-xs font-black px-2 py-0.5 rounded border ${theme.accentLightBg}`}>
+                          {log.mileage.toLocaleString()} km
+                        </span>
+                        {log.cost !== undefined && (
+                          <span className={`text-xs font-medium px-2 py-0.5 rounded border ${isDark ? 'bg-slate-950 border-slate-800 text-slate-300' : 'bg-slate-100 border-slate-200 text-slate-600'}`}>
+                            ₩{(Number(log.cost)).toLocaleString()}
+                          </span>
+                        )}
+                      </div>
+                      
+                      <p className={`text-xs ${theme.subText} mt-2 leading-relaxed italic`}>
+                        &ldquo; {log.note} &rdquo;
+                      </p>
+                    </div>
+
+                    <button 
+                      onClick={() => handleDeleteLog(log.id)}
+                      className={`absolute right-3 bottom-3 text-slate-400 hover:text-red-500 p-1.5 rounded-md hover:bg-slate-250 dark:hover:bg-slate-950/65 transition`}
+                      title="이력 삭제"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+
+          </div>
+        )}
+
+        {/* TAB 3: LEDGER */}
+        {activeTab === 'ledger' && (
+          <div className="space-y-4 animate-fadeIn">
+            <div className="flex items-center gap-1.5 px-1 mb-2">
+              <Coins className={`w-5 h-5 ${theme.accentText}`} />
+              <h3 className={`font-extrabold ${theme.titleText}`}>정비 차계부 ({activeBike.modelName})</h3>
+            </div>
+
+            <div className={`rounded-2xl p-5 shadow-lg border text-white ${isDark ? 'bg-gradient-to-r from-cyan-600 to-indigo-600 border-cyan-500/20' : 'bg-gradient-to-r from-sky-500 to-blue-600 border-sky-450'}`}>
+              <span className="text-[11px] opacity-90 font-extrabold uppercase tracking-wider">차종별 누적 총 정비 지출</span>
+              <h2 className="text-3xl font-black mt-1">₩{grandTotalCost.toLocaleString()}</h2>
+              <div className="flex items-center gap-1.5 mt-3 text-xs bg-black/15 px-3 py-1.5 rounded-lg w-fit">
+                <CreditCard className="w-3.5 h-3.5" />
+                <span>총 <strong>{currentBikeLogs.length}건</strong>의 교체 이력 분석됨</span>
+              </div>
+            </div>
+
+            <div className="space-y-4 mt-6">
+              <h4 className={`text-xs font-bold ${theme.subText} px-1 uppercase tracking-wider`}>월별 지출 요약</h4>
+              
+              {monthlyStats.length === 0 ? (
+                <div className={`text-center py-12 ${theme.card} border rounded-xl`}>
+                  <Coins className="w-8 h-8 mx-auto opacity-30 mb-2" />
+                  <p className="text-xs">집계할 지출 내역이 아직 없거나 비용이 0원입니다.</p>
+                </div>
+              ) : (
+                monthlyStats.map((stat) => {
+                  const [year, month] = stat.month.split('-');
+                  const isExpanded = expandedMonth === stat.month;
+
+                  return (
+                    <div 
+                      key={stat.month} 
+                      onClick={() => {
+                        if (isExpanded) {
+                          setExpandedMonth(null);
+                        } else {
+                          setExpandedMonth(stat.month);
+                          setSelectedCalendarDate(null);
+                        }
+                      }}
+                      className={`${theme.card} border rounded-xl p-4 space-y-3 cursor-pointer transition-all duration-300`}
+                    >
+                      <div className={`flex justify-between items-center pb-2 ${isExpanded ? 'border-b border-slate-200 dark:border-slate-800' : ''}`}>
+                        <div className="flex items-center gap-2">
+                          <span className={`font-bold text-sm ${theme.titleText}`}>
+                            {year}년 {month}월
+                          </span>
+                          <span className={`text-[9px] ${theme.badge} px-2 py-0.5 rounded border font-medium`}>
+                            {stat.items.length}건
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <span className={`font-black text-sm ${theme.accentText}`}>
+                            ₩{stat.total.toLocaleString()}
+                          </span>
+                          <ChevronRight className={`w-4 h-4 text-slate-400 transform transition-transform ${isExpanded ? 'rotate-90' : 'rotate-0'}`} />
+                        </div>
+                      </div>
+
+                      {!isExpanded && (
+                        <div className="space-y-2 pt-1">
+                          {stat.items.slice(0, 2).map(item => (
+                            <div key={item.id} className={`flex justify-between items-center text-[11px] ${theme.subText} pl-1`}>
+                              <span className="truncate max-w-[200px] font-medium">🛠️ {item.item}</span>
+                              <span className="font-extrabold opacity-80">{item.mileage.toLocaleString()} km</span>
+                            </div>
+                          ))}
+                          {stat.items.length > 2 && (
+                            <p className={`text-[10px] ${theme.accentText} pl-1 font-semibold`}>외 {stat.items.length - 2}건 더 보기...</p>
+                          )}
+                        </div>
+                      )}
+
+                      {isExpanded && renderTossCalendar(stat.month, stat.items)}
+
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* TAB 4: AI MECHANIC CHAT */}
+        {activeTab === 'chat' && (
+          <div className={`flex flex-col h-[calc(100vh-190px)] max-h-[600px] border rounded-2xl overflow-hidden ${isDark ? 'bg-slate-900/65 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+            
+            <div className={`p-3 border-b flex items-center gap-2.5 ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
+              <div className="relative">
+                <div className={`${theme.accentBg} text-white p-1.5 rounded-lg`}>
+                  <Sparkles className="w-4 h-4" />
+                </div>
+                <div className="absolute right-0 bottom-0 w-2.5 h-2.5 bg-green-500 border-2 rounded-full border-white dark:border-slate-900"></div>
+              </div>
+              <div className="flex-1">
+                <h4 className={`text-xs font-black ${theme.titleText}`}>AI 실시간 전문 미케닉</h4>
+                <p className={`text-[9px] ${theme.subText}`}>{activeBike.modelName} ({activeBike.modelYear || 2022}년식) • {activeBike.currentMileage.toLocaleString()}km</p>
+              </div>
+            </div>
+
+            <div className={`p-3.5 border-b flex gap-3 items-start ${isDark ? 'bg-slate-900/90 border-slate-800' : 'bg-orange-50/40 border-slate-100'}`}>
+              <div className="p-1.5 bg-amber-500/10 border border-amber-500/25 rounded-lg text-amber-500 mt-0.5">
+                <AlertTriangle className="w-4 h-4" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h5 className={`text-[11px] font-black ${theme.titleText} flex items-center gap-1.5`}>
+                  연식·마일리지 종합 노후 경고
+                  <span className="text-[10px] font-bold text-amber-500">
+                    ({bikeAgeYears}년 경과 / {activeBike.currentMileage.toLocaleString()}km)
+                  </span>
+                </h5>
+                <p className={`text-[10px] ${theme.subText} mt-1 leading-relaxed`}>
+                  {bikeAgeYears >= 3 
+                    ? "⚠️ 경과 연도 3년 초과! 브레이크 고무 캘리퍼 가스켓 경화, 포크 내부 슬러지 산화, 연료 호스 미세 균열이 우려됩니다." 
+                    : "✨ 연식이 양호합니다! 하지만 도심 주행 및 잦은 수분 노출 시 크랭크 가스켓 주변 미세 누유 및 볼트 체결 토크 유격을 주기적으로 확인하십시오."}
+                </p>
+                <div className="flex flex-wrap gap-2 mt-2">
+                  <button 
+                    onClick={triggerAiAgingReport}
+                    disabled={isChatLoading}
+                    className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-[9.5px] font-extrabold border shadow-sm transition-all duration-300 ${
+                      isDark 
+                        ? 'bg-cyan-950/40 border-cyan-800/80 text-cyan-400 hover:bg-cyan-950/80' 
+                        : 'bg-sky-50 border-sky-200 text-sky-600 hover:bg-sky-100'
+                    }`}
+                  >
+                    <Sparkles className="w-3 h-3" />
+                    <span>AI 안심 진단서 발행</span>
+                  </button>
+                  <span className={`text-[9px] ${theme.subText} self-center italic`}>* 의심되는 부위를 찍어 올리셔도 판독 가능합니다.</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4 space-y-3.5">
+              {chatMessages.map((msg) => (
+                <div key={msg.id} className={`flex flex-col ${msg.sender === 'user' ? 'items-end' : 'items-start'}`}>
+                  {msg.image && (
+                    <div className="mb-1.5 max-w-[80%] rounded-xl overflow-hidden border border-slate-350 dark:border-slate-800 shadow-sm">
+                      <img src={msg.image} alt="User Attached" className="w-full h-auto max-h-40 object-cover" />
+                    </div>
+                  )}
+                  
+                  <div className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 text-xs leading-relaxed ${
+                    msg.sender === 'user' 
+                      ? `${theme.accentBg} rounded-tr-none font-medium shadow` 
+                      : `${isDark ? 'bg-slate-800 text-slate-200 border-slate-800' : 'bg-white text-slate-800 border-slate-200'} border rounded-tl-none whitespace-pre-wrap`
+                  }`}>
+                    {msg.text}
+                  </div>
+                </div>
+              ))}
+              
+              {isChatLoading && (
+                <div className="flex justify-start">
+                  <div className={`border rounded-2xl rounded-tl-none px-4 py-3 text-xs flex items-center gap-2 ${isDark ? 'bg-slate-800 text-slate-400 border-slate-800' : 'bg-white text-slate-500 border-slate-200'}`}>
+                    <RefreshCw className={`w-3.5 h-3.5 animate-spin ${theme.accentText}`} />
+                    <span>AI 정비 명장이 이륜차 노화 프로필 및 시각 데이터를 스캔하는 중...</span>
+                  </div>
+                </div>
+              )}
+              <div ref={chatEndRef}></div>
+            </div>
+
+            {chatImagePreview && (
+              <div className={`p-2.5 border-t flex items-center justify-between gap-3 animate-fadeIn ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-sky-50 border-sky-200'}`}>
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-12 h-12 rounded-lg overflow-hidden border border-slate-400 dark:border-slate-700 relative">
+                    <img src={chatImagePreview} alt="Attached Preview" className="w-full h-full object-cover" />
+                  </div>
+                  <div className="min-w-0">
+                    <span className={`text-[10px] font-black ${theme.accentText}`}>사진 스캔 준비 완료</span>
+                    <p className={`text-[9px] ${theme.subText} truncate`}>전송 시 사진을 판독하여 함께 답변해 드립니다.</p>
+                  </div>
+                </div>
+                <button 
+                  type="button"
+                  onClick={clearAttachedImage}
+                  className={`p-1.5 rounded-full ${isDark ? 'bg-slate-800 hover:bg-slate-755 text-slate-300' : 'bg-slate-200 hover:bg-slate-300 text-slate-700'} transition`}
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+
+            <div className={`p-2 border-t flex flex-wrap gap-1.5 justify-center ${isDark ? 'border-slate-850 bg-slate-950/40' : 'border-slate-200 bg-slate-100/50'}`}>
+              <button 
+                onClick={() => handleQuickQuestion(`${activeBike.modelYear}년식에 현재 ${activeBike.currentMileage}km인데 겨울철 장기 보관 시 연료탱크 부식이나 배터리 보호 조치는 어떻게 해야 하나요?`)}
+                className={`text-[9px] px-2.5 py-1.5 rounded-full border transition-all font-semibold ${isDark ? 'bg-slate-800 hover:bg-slate-755 text-slate-300 border-slate-700/60' : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200 shadow-sm'}`}
+              >
+                ❄️ 장기 보관 대책
+              </button>
+              <button 
+                onClick={() => handleQuickQuestion("브레이크 액을 교환할 때 캘리퍼 고무 피스톤 실링 고착 여부를 자가 진단하는 방법은 무엇인가요?")}
+                className={`text-[9px] px-2.5 py-1.5 rounded-full border transition-all font-semibold ${isDark ? 'bg-slate-800 hover:bg-slate-755 text-slate-300 border-slate-700/60' : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200 shadow-sm'}`}
+              >
+                🛑 브레이크 캘리퍼 고착 진단
+              </button>
+              <button 
+                onClick={() => handleQuickQuestion("핸들을 돌릴 때 뚝뚝 거리는 유격이나 삼바리 베어링 마모를 체크해보고 싶습니다.")}
+                className={`text-[9px] px-2.5 py-1.5 rounded-full border transition-all font-semibold ${isDark ? 'bg-slate-800 hover:bg-slate-755 text-slate-300 border-slate-700/60' : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200 shadow-sm'}`}
+              >
+                🏍️ 조향 삼바리/베어링 유격
+              </button>
+            </div>
+
+            <form onSubmit={handleSendChatMessage} className={`p-3 border-t flex items-center gap-2 ${isDark ? 'border-slate-800 bg-slate-900' : 'border-slate-200 bg-white'}`}>
+              <input 
+                type="file" 
+                accept="image/*"
+                ref={fileInputRef}
+                onChange={handleImageAttachmentChange}
+                className="hidden" 
+              />
+              
+              <button 
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isChatLoading}
+                className={`p-2.5 rounded-xl border flex items-center justify-center transition ${
+                  chatImagePreview 
+                    ? `${theme.accentBg} text-white` 
+                    : `${isDark ? 'bg-slate-800 hover:bg-slate-75 text-slate-300 border-slate-750' : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'}`
+                }`}
+                title="사진 찍기 또는 첨부"
+              >
+                <Paperclip className="w-4 h-4" />
+              </button>
+
+              <input 
+                type="text" 
+                placeholder={chatImagePreview ? "사진과 함께 질문을 입력하세요..." : "예: 체인 기어 사진을 올려 상태 진단받기..."}
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                disabled={isChatLoading}
+                className={`flex-1 rounded-xl px-3.5 py-2.5 text-xs outline-none ${theme.input}`}
+              />
+              <button 
+                type="submit"
+                disabled={isChatLoading || (!chatInput.trim() && !chatImage)}
+                className={`${theme.accentBg} disabled:bg-slate-300 disabled:dark:bg-slate-800 disabled:text-slate-400 text-white p-2.5 rounded-xl transition flex items-center justify-center`}
+              >
+                <Send className="w-4 h-4" />
+              </button>
+            </form>
+
+          </div>
+        )}
+
+      </main>
+
+      {/* MODAL 1: GARAGE MANAGER */}
+      {isBikeModalOpen && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className={`${theme.modal} border rounded-2xl w-full max-w-md p-5 space-y-4 animate-fadeIn`}>
+            
+            <div className="flex justify-between items-center">
+              <div>
+                <h3 className={`font-black ${theme.titleText} text-lg flex items-center gap-2`}>
+                  <Bike className={`w-5 h-5 ${theme.accentText}`} /> 차고 관리
+                </h3>
+                <p className={`text-[10px] ${theme.subText} mt-0.5`}>등록된 차량을 터치하여 쉽게 주 차량으로 전환해보세요.</p>
+              </div>
+              <button onClick={() => setIsBikeModalOpen(false)} className={`p-1.5 rounded-lg ${isDark ? 'bg-slate-800/60 hover:bg-slate-800 text-slate-400' : 'bg-slate-100 hover:bg-slate-200 text-slate-600'} hover:text-slate-200 transition`}>
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-2.5 max-h-48 overflow-y-auto pr-1">
+              <label className={`block text-[11px] font-extrabold ${theme.subText} uppercase tracking-wider`}>등록된 내 차량 ({bikes.length})</label>
+              {bikes.map(b => {
+                const isActive = activeBikeId === b.id;
+                return (
+                  <div 
+                    key={b.id} 
+                    onClick={() => {
+                      setActiveBikeId(b.id);
+                      setIsBikeModalOpen(false);
+                    }}
+                    className={`p-4 rounded-xl border flex items-center gap-3.5 cursor-pointer transition-all duration-300 relative group overflow-hidden ${
+                      isActive 
+                        ? `${isDark ? 'bg-gradient-to-r from-cyan-950/40 to-slate-900 border-cyan-500 shadow-lg shadow-cyan-500/5' : 'bg-sky-50/70 border-sky-500 shadow-md shadow-sky-500/5'}` 
+                        : `${isDark ? 'bg-slate-950/60 border-slate-850/80 hover:border-slate-700/80 hover:bg-slate-900' : 'bg-white border-slate-200 hover:border-slate-300 hover:bg-slate-50'}`
+                    }`}
+                  >
+                    <div className={`p-2.5 rounded-xl transition-all duration-300 ${
+                      isActive ? `${theme.accentBg} text-white shadow-md` : `${isDark ? 'bg-slate-900 text-slate-400' : 'bg-slate-100 text-slate-500'} group-hover:text-slate-200`
+                    }`}>
+                      {b.bikeType === 'Scooter' ? (
+                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                        </svg>
+                      ) : (
+                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                        </svg>
+                      )}
+                    </div>
+
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <h4 className={`font-extrabold text-sm ${theme.titleText} truncate max-w-[150px]`}>
+                          {b.modelName} <span className="text-xs opacity-60">({b.modelYear || 2022}년식)</span>
+                        </h4>
+                        {isActive && (
+                          <span className={`text-[9px] ${theme.accentLightBg} border px-1.5 py-0.5 rounded-md font-black flex items-center gap-1`}>
+                            <span className={`w-1.5 h-1.5 ${isDark ? 'bg-cyan-500' : 'bg-sky-500'} rounded-full animate-pulse`}></span>
+                            운행중
+                          </span>
+                        )}
+                      </div>
+                      <div className={`flex items-center gap-2 mt-1.5 text-[10px] ${theme.subText} font-medium`}>
+                        <span className={`border px-1.5 py-0.5 rounded font-semibold ${theme.badge}`}>{b.bikeType}</span>
+                        <span>•</span>
+                        <span>{b.engineSize}</span>
+                        <span>•</span>
+                        <span className={`${theme.accentText} font-extrabold`}>{b.currentMileage.toLocaleString()} km</span>
+                      </div>
+                    </div>
+
+                    <button 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteBike(b.id, e);
+                      }}
+                      className={`p-2 ${theme.subText} hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg transition-all`}
+                      title="차량 삭제"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+
+            <form onSubmit={handleAddBikeSearch} className={`space-y-3.5 pt-2.5 border-t ${isDark ? 'border-slate-800' : 'border-slate-200'}`}>
+              <span className={`text-xs font-bold ${theme.accentText} block`}>✦ 새 오토바이 추가 (AI 연동 사양 설계)</span>
+              
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className={`block text-[10px] ${theme.subText} mb-1`}>기종 이름 입력 *</label>
+                  <input 
+                    type="text" 
+                    required
+                    placeholder="예: CBR650R, MT-03, NMAX 등"
+                    value={customModelInput}
+                    onChange={(e) => setCustomModelInput(e.target.value)}
+                    className={`w-full rounded-xl px-3 py-2 text-xs outline-none ${theme.input}`}
+                  />
+                </div>
+                <div>
+                  <label className={`block text-[10px] ${theme.subText} mb-1`}>제조 연식 (년식) *</label>
+                  <input 
+                    type="number" 
+                    required
+                    placeholder="예: 2023"
+                    value={newYearInput}
+                    onChange={(e) => setNewYearInput(e.target.value)}
+                    className={`w-full rounded-xl px-3 py-2 text-xs outline-none ${theme.input}`}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className={`block text-[10px] ${theme.subText} mb-1`}>현재 주행거리 (km)</label>
+                <input 
+                  type="number" 
+                  placeholder="예: 7800"
+                  value={newMileageInput}
+                  onChange={(e) => setNewMileageInput(e.target.value)}
+                  className={`w-full rounded-xl px-3.5 py-2 text-xs outline-none ${theme.input}`}
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={isAiLoading}
+                className={`w-full text-white font-extrabold text-xs py-2.5 rounded-xl flex items-center justify-center gap-2 transition disabled:bg-slate-300 ${theme.accentBg}`}
+              >
+                {isAiLoading ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <span>AI가 바이크 구동사양 정밀 스캔 중...</span>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-4 h-4" />
+                    <span>새 바이크 AI 사양 설계 및 등록</span>
+                  </>
+                )}
+              </button>
+            </form>
+
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 2: DIAGNOSTICS WIZARD */}
+      {isDiagModalOpen && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className={`${theme.modal} border rounded-2xl w-full max-w-md p-5 space-y-4`}>
+            
+            <div className="flex justify-between items-center">
+              <h3 className={`font-extrabold ${theme.titleText} flex items-center gap-1.5`}>
+                <Sliders className={`w-5 h-5 ${theme.accentText}`} /> 주행 가중치 프로필 분석
+              </h3>
+              <button onClick={() => setIsDiagModalOpen(false)} className={`hover:${theme.titleText} ${theme.subText}`}>
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className={`text-[11px] ${theme.subText} leading-relaxed`}>
+              가혹한 도로 노면이나 엔진 급가속 기동이 잦은 영업용 이륜차는 가혹 조건이 동기화되어 정비 한계 수명 알림 주기가 스마트하게 자동 단축됩니다.
+            </p>
+
+            <div className="space-y-4 pt-1">
+              <div>
+                <label className={`block text-xs font-extrabold ${theme.titleText} mb-2`}>1. 주된 운행 목적은 무엇입니까?</label>
+                <div className="grid grid-cols-3 gap-2">
+                  <button 
+                    onClick={() => setDiagnostics(prev => ({ ...prev, purpose: 'commute' }))}
+                    className={`p-2 rounded-lg border text-xs font-bold transition ${
+                      diagnostics.purpose === 'commute' 
+                        ? `${theme.accentLightBg} border-current` 
+                        : `${isDark ? 'bg-slate-950/50 text-slate-400 border-slate-800' : 'bg-slate-50 text-slate-600 border-slate-200'}`
+                    }`}
+                  >
+                    일반 출퇴근
+                  </button>
+                  <button 
+                    onClick={() => setDiagnostics(prev => ({ ...prev, purpose: 'delivery' }))}
+                    className={`p-2 rounded-lg border text-xs font-bold transition ${
+                      diagnostics.purpose === 'delivery' 
+                        ? `${theme.accentLightBg} border-current animate-pulse` 
+                        : `${isDark ? 'bg-slate-950/50 text-slate-400 border-slate-800' : 'bg-slate-50 text-slate-600 border-slate-200'}`
+                    }`}
+                  >
+                    🏍️ 배달 영업용
+                  </button>
+                  <button 
+                    onClick={() => setDiagnostics(prev => ({ ...prev, purpose: 'tour' }))}
+                    className={`p-2 rounded-lg border text-xs font-bold transition ${
+                      diagnostics.purpose === 'tour' 
+                        ? `${theme.accentLightBg} border-current` 
+                        : `${isDark ? 'bg-slate-950/50 text-slate-400 border-slate-800' : 'bg-slate-50 text-slate-600 border-slate-200'}`
+                    }`}
+                  >
+                    레저용/주말크루즈
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className={`block text-xs font-extrabold ${theme.titleText} mb-2`}>2. 평소 가속 핸들 스로틀 제어 습관은?</label>
+                <div className="grid grid-cols-3 gap-2">
+                  <button 
+                    onClick={() => setDiagnostics(prev => ({ ...prev, style: 'gentle' }))}
+                    className={`p-2 rounded-lg border text-xs font-bold transition ${
+                      diagnostics.style === 'gentle' 
+                        ? `${theme.accentLightBg} border-current` 
+                        : `${isDark ? 'bg-slate-950/50 text-slate-400 border-slate-800' : 'bg-slate-50 text-slate-600 border-slate-200'}`
+                    }`}
+                  >
+                    차분하게
+                  </button>
+                  <button 
+                    onClick={() => setDiagnostics(prev => ({ ...prev, style: 'normal' }))}
+                    className={`p-2 rounded-lg border text-xs font-bold transition ${
+                      diagnostics.style === 'normal' 
+                        ? `${theme.accentLightBg} border-current` 
+                        : `${isDark ? 'bg-slate-950/50 text-slate-400 border-slate-800' : 'bg-slate-50 text-slate-600 border-slate-200'}`
+                    }`}
+                  >
+                    보통 속도
+                  </button>
+                  <button 
+                    onClick={() => setDiagnostics(prev => ({ ...prev, style: 'aggressive' }))}
+                    className={`p-2 rounded-lg border text-xs font-bold transition ${
+                      diagnostics.style === 'aggressive' 
+                        ? `${theme.accentLightBg} border-current` 
+                        : `${isDark ? 'bg-slate-950/50 text-slate-400 border-slate-800' : 'bg-slate-50 text-slate-600 border-slate-200'}`
+                    }`}
+                  >
+                    ⚠️ 급가습 급제동
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className={`block text-xs font-extrabold ${theme.titleText} mb-2`}>3. 주행 노면 상태 환경은?</label>
+                <div className="grid grid-cols-3 gap-2">
+                  <button 
+                    onClick={() => setDiagnostics(prev => ({ ...prev, road: 'city' }))}
+                    className={`p-2 rounded-lg border text-xs font-bold transition ${
+                      diagnostics.road === 'city' 
+                        ? `${theme.accentLightBg} border-current` 
+                        : `${isDark ? 'bg-slate-950/50 text-slate-400 border-slate-800' : 'bg-slate-50 text-slate-600 border-slate-200'}`
+                    }`}
+                  >
+                    도심 혼잡 정체
+                  </button>
+                  <button 
+                    onClick={() => setDiagnostics(prev => ({ ...prev, road: 'highway' }))}
+                    className={`p-2 rounded-lg border text-xs font-bold transition ${
+                      diagnostics.road === 'highway' 
+                        ? `${theme.accentLightBg} border-current` 
+                        : `${isDark ? 'bg-slate-950/50 text-slate-400 border-slate-800' : 'bg-slate-50 text-slate-600 border-slate-200'}`
+                    }`}
+                  >
+                    국도 전용포장
+                  </button>
+                  <button 
+                    onClick={() => setDiagnostics(prev => ({ ...prev, road: 'dusty' }))}
+                    className={`p-2 rounded-lg border text-xs font-bold transition ${
+                      diagnostics.road === 'dusty' 
+                        ? `${theme.accentLightBg} border-current` 
+                        : `${isDark ? 'bg-slate-950/50 text-slate-400 border-slate-800' : 'bg-slate-50 text-slate-600 border-slate-200'}`
+                    }`}
+                  >
+                    🏜️ 흙먼지/비포장
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="pt-4">
+              <button
+                onClick={() => applyDiagnostics(diagnostics.purpose, diagnostics.style, diagnostics.road)}
+                className={`w-full text-white font-extrabold py-3 rounded-xl text-xs transition ${theme.accentBg}`}
+              >
+                자가진단 소모품 교체 주기에 반영
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 3: REPLACEMENT FORM */}
+      {isReplaceModalOpen && selectedReplaceItem && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className={`${theme.modal} border rounded-2xl w-full max-w-md p-5 space-y-4`}>
+            
+            <div className="flex justify-between items-center">
+              <h3 className={`font-extrabold ${theme.titleText} flex items-center gap-1.5`}>
+                <CheckCircle2 className="w-5 h-5 text-green-500" /> 소모품 교체 및 비용 등록
+              </h3>
+              <button 
+                onClick={() => {
+                  setIsReplaceModalOpen(false);
+                  setSelectedReplaceItem(null);
+                }} 
+                className={`hover:${theme.titleText} ${theme.subText}`}
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className={`p-3 rounded-xl border ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+              <span className={`text-[9px] bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 px-1.5 py-0.5 rounded font-bold uppercase`}>{selectedReplaceItem.category}</span>
+              <h4 className={`font-bold text-sm ${theme.titleText} mt-1`}>{selectedReplaceItem.name}</h4>
+            </div>
+
+            <form onSubmit={handleConfirmReplace} className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className={`block text-[11px] font-bold ${theme.subText} mb-1.5`}>교체 주행거리 (km) *</label>
+                  <input 
+                    type="number" 
+                    required
+                    placeholder="예: 5200"
+                    value={replaceMileage}
+                    onChange={(e) => setReplaceMileage(e.target.value)}
+                    className={`w-full rounded-xl px-3.5 py-2.5 text-xs outline-none ${theme.input}`}
+                  />
+                </div>
+                <div>
+                  <label className={`block text-[11px] font-bold ${theme.subText} mb-1.5`}>정비 날짜 *</label>
+                  <input 
+                    type="date" 
+                    required
+                    value={replaceDate}
+                    onChange={(e) => setReplaceDate(e.target.value)}
+                    className={`w-full rounded-xl px-3.5 py-2.5 text-xs outline-none ${theme.input}`}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className={`block text-[11px] font-bold ${theme.subText} mb-1.5`}>총 정비 소요 비용 (원) *</label>
+                <input 
+                  type="number" 
+                  required
+                  placeholder="총 부품 및 공임비용 (예: 45000)"
+                  value={replaceCost}
+                  onChange={(e) => setReplaceCost(e.target.value)}
+                  className={`w-full rounded-xl px-3.5 py-2.5 text-xs outline-none ${theme.input}`}
+                />
+              </div>
+
+              <div>
+                <label className={`block text-[11px] font-bold ${theme.subText} mb-1.5`}>정비 메모 (선택사항)</label>
+                <textarea 
+                  rows="2"
+                  placeholder="예: 체인 클리너 사용 청소 및 전용 루브칠(스프레이) 도포 완료"
+                  value={replaceNote}
+                  onChange={(e) => setReplaceNote(e.target.value)}
+                  className={`w-full rounded-xl px-3.5 py-2 text-xs outline-none resize-none ${theme.input}`}
+                ></textarea>
+              </div>
+
+              <button
+                type="submit"
+                className={`w-full text-white font-extrabold text-xs py-3 rounded-xl transition flex items-center justify-center gap-1.5 ${theme.accentBg}`}
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                <span>정비 수불부에 등록 및 탭이동</span>
+              </button>
+            </form>
+
+          </div>
+        </div>
+      )}
+
+      {/* FOOTER BAR */}
+      <footer className={`w-full max-w-md ${theme.footer} fixed bottom-0 z-30 px-4 py-2.5 flex justify-between transition-all duration-300 ${isAnyModalOpen ? 'blur-[2px] opacity-45 pointer-events-none' : ''}`}>
+        <button 
+          onClick={() => setActiveTab('dashboard')}
+          className={`flex flex-col items-center gap-1.5 transition ${activeTab === 'dashboard' ? `${theme.accentText} font-black` : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'}`}
+        >
+          <Wrench className="w-5 h-5" />
+          <span className="text-[10px]">체크리스트</span>
+        </button>
+
+        <button 
+          onClick={() => setActiveTab('garage')}
+          className={`flex flex-col items-center gap-1.5 transition ${activeTab === 'garage' ? `${theme.accentText} font-black` : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'}`}
+        >
+          <History className="w-5 h-5" />
+          <span className="text-[10px]">정비수불부</span>
+        </button>
+
+        <button 
+          onClick={() => setActiveTab('ledger')}
+          className={`flex flex-col items-center gap-1.5 transition ${activeTab === 'ledger' ? `${theme.accentText} font-black` : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'}`}
+        >
+          <Coins className="w-5 h-5" />
+          <span className="text-[10px]">차계부</span>
+        </button>
+
+        <button 
+          onClick={() => setActiveTab('chat')}
+          className={`flex flex-col items-center gap-1.5 transition ${activeTab === 'chat' ? `${theme.accentText} font-black` : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'}`}
+        >
+          <MessageSquare className="w-5 h-5" />
+          <span className="text-[10px]">AI미케닉 챗</span>
+        </button>
+      </footer>
+
+    </div>
+  );
+}
